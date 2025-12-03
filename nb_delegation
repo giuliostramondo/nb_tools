@@ -1,0 +1,167 @@
+#!/usr/bin/env python3
+
+import argparse
+from chain_client import StakingState
+from nb_opt import optimize, test,sybilSimulation
+
+
+def print_subcommand_help(parser, name):
+    # Find the subparsers container
+    subparsers_actions = [
+        action for action in parser._actions
+        if isinstance(action, argparse._SubParsersAction)
+    ]
+    if not subparsers_actions:
+        raise ValueError("No subparsers defined")
+
+    # There is usually only one _SubParsersAction
+    subparsers = subparsers_actions[0].choices
+
+    if name not in subparsers:
+        raise ValueError(f"Subcommand {name!r} not found")
+
+    # Print its help
+    subparsers[name].print_help()
+
+def setupArgs():
+    parser = argparse.ArgumentParser()
+    subparsers = parser.add_subparsers(dest='command',title='Available commands', metavar='')
+    pull_data = subparsers.add_parser('pull', help='Pull current staking data from endpoint (overwrites existing data)')
+    dump_data = subparsers.add_parser('dump', help='Dump stored staking data (pulls if no data is stored)')
+    optimize = subparsers.add_parser('optimize', help='Compute optimal delegation strategy')
+    optimize.add_argument("-a", "--amount", type=int, help='Amount of atone to delegate')
+    optimize.add_argument("-o", "--owned", nargs="+", help='Valoper address of an owned validator (considers commission from this validator)')
+    optimize.add_argument("-r", "--redelegate", nargs="+", help='List of address from which to redelegate')
+    optimize.add_argument("-c", "--coefficient", type=float, help='Nakamoto bonus coefficient', required=True)
+    optimize.add_argument("-p", "--prcommission", action='store_true', help="If set validator's commissions are deducted only from the proportional reward.")
+    test = subparsers.add_parser('test', help='Compute optimal delegation strategy on syntethic data')
+    test.add_argument("-a", "--amount", type=int, help='Amount of atone to delegate')
+    test.add_argument("-o", "--owned", nargs="+", help='Valoper address of an owned validator (considers commission from this validator)')
+    test.add_argument("-s", "--stakes", nargs="+", help='Valoper address of an owned validator (considers commission from this validator)')
+    test.add_argument("-c", "--coefficient", type=float, nargs="+", help='Nakamoto bonus coefficient', required=True)
+    test.add_argument('-b', '--sybil', action='store_true', help='Consider sybils.')
+    sybil = subparsers.add_parser('sybil', help='Compute sybil advantage when changing eta')
+    sybil.add_argument("-a", "--amount", type=int, help='Amount of atone to delegate')
+    sybil.add_argument("-o", "--owned", nargs="+", help='Valoper address of an owned validator (considers commission from this validator)')
+    sybil.add_argument("-r", "--redelegate", nargs="+", help='List of address from which to redelegate')
+    sybil.add_argument("-c", "--coefficient", type=float, nargs="+", help='Nakamoto bonus coefficient', required=True)
+    sybil.add_argument("-p", "--prcommission", action='store_true', help="If set validator's commissions are deducted only from the proportional reward.")
+    return parser
+
+
+
+def main():
+    parser = setupArgs()
+    args = parser.parse_args()
+
+    # Print help if no subcommand is provided
+    if args.command is None:
+        parser.print_help()
+        return 1
+
+    if args.command == "pull":
+        stakingState = StakingState("https://atomone.rpc.nodeshub.online:443", force_pull=True)
+    elif args.command == "optimize":
+        if args.amount == None and  args.redelegate == None:
+            print("Need to specify amount or redelegation accounts")
+            print_subcommand_help(parser, 'optimize')
+            return
+        stakingState = StakingState("https://atomone.rpc.nodeshub.online:443")
+        if args.amount == None:
+            amount = 0
+        else:
+            amount = args.amount
+        if args.owned == None:
+            owned = []
+        else:
+            owned = args.owned
+        if args.redelegate == None:
+            redelegate = []
+        else:
+            redelegate = args.redelegate
+        if args.prcommission:
+            prcommission=True
+        else:
+            prcommission=False
+        optimize(stakingState, amount, owned, redelegate, args.coefficient, prcommission)
+    elif args.command == "sybil":
+        if args.amount == None and  args.redelegate == None:
+            print("Need to specify amount or redelegation accounts")
+            print_subcommand_help(parser, 'optimize')
+            return
+        stakingState = StakingState("https://atomone.rpc.nodeshub.online:443")
+        if args.amount == None:
+            amount = 0
+        else:
+            amount = args.amount
+        if args.owned == None:
+            owned = []
+        else:
+            owned = args.owned
+        if args.redelegate == None:
+            redelegate = []
+        else:
+            redelegate = args.redelegate
+        if args.prcommission:
+            prcommission=True
+        else:
+            prcommission=False
+        sybilSimulation(stakingState, amount, owned, redelegate, args.coefficient, prcommission)
+    elif args.command == "test":
+        valStake = []
+        for s in args.stakes:
+            valStake += [int(s)]
+        valOwned = []
+        for o in args.owned:
+            if o == "1":
+                valOwned += [True]
+            elif o == "0":
+                valOwned += [False]
+            else:
+                print("Error, owned needs to be a list of 0 (not owned) and 1 (owned)")
+                return
+        if not args.sybil:
+            test(args.amount, valStake, valOwned, args.coefficient)
+        else:
+            test(args.amount, valStake, valOwned, args.coefficient, sybil = True)
+
+    elif args.command == "dump":
+        stakingState = StakingState("https://atomone.rpc.nodeshub.online:443")
+        stakingState.dump_state()
+    else:
+        print(f"Unrecognized command: {args.command}")
+        parser.print_help()
+        return 1
+
+if __name__ == "__main__":
+    main()
+
+# Optimal (re)delegation for Dokia
+# ./nb_delegation optimize -r atone144xwxcrlntp4wjadhrylzc6p3vdzscyex8kafh -c 0.03 -o atonevaloper144xwxcrlntp4wjadhrylzc6p3vdzscyey6a5r0
+
+
+# ./nb_delegation sybil -r atone144xwxcrlntp4wjadhrylzc6p3vdzscyex8kafh -c 0 0.03 0.05 0.1 0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.9 1 -o atonevaloper144xwxcrlntp4wjadhrylzc6p3vdzscyey6a5r0
+
+# sythetic test on slides
+#  ./nb_delegation test -a 834 -s  13 38 65 50 -o 0 0 0 1 -c 0 0.03 0.05 0.1 0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.9 1 -b
+
+
+# Moniker: DKCMC
+#         Valoper: atonevaloper144xwxcrlntp4wjadhrylzc6p3vdzscyey6a5r0
+#         account: atone144xwxcrlntp4wjadhrylzc6p3vdzscyex8kafh
+#         Delegator Shares: 3635876094364
+#         VP: 7.0395958547367465
+#         Status: BOND_STATUS_BONDED
+#                 atone144xwxcrlntp4wjadhrylzc6p3vdzscyex8kafh -> 3429157000000 94.31446262196786%
+#                 atone1wlh0f94r6c4y5nwsqlxd2384jmxlljstnm9nee -> 116469216310 3.2033329323444173%
+#                 atone1wqv533zj30yl87x0jq96v7cuwccdfhfyd0cz9u -> 15708468044 0.4320407966693315%
+
+
+# eta: 0 rewardLM: 83.65 rewardSybilLM: 84.49848024316108, diffLM: 1.01% delegationsLM: [0, 0, 0, 834]/[834, 0, 0, 0]
+# eta: 0.03 rewardLM: 82.44867025341425 rewardSybilLM: 83.91234213951472, diffLM: 1.78% delegationsLM: [30.443127220694876, 36.27475060316581, 32.14178562064525, 735.140336555548]/[14, 35.81454521158915, 31.539896376629414, 752.6455584119722]
+# eta: 0.05 rewardLM: 82.06995725754986 rewardSybilLM: 83.6547991116004, diffLM: 1.93% delegationsLM: [43.33616476911734, 58.31798758197495, 60.97149401537513, 671.3743536337004]/[14, 57.79280711391537, 60.2846257589879, 701.9225671278839]
+# eta: 0.1 rewardLM: 81.54626975851365 rewardSybilLM: 83.35354308077552, diffLM: 2.22% delegationsLM: [66.99266916054752, 98.76353274013192, 113.8690459446353, 554.3747521542149]/[14, 98.63998360802253, 113.70745962886144, 607.652556762229]
+# eta: 0.5 rewardLM: 81.13157388896437 rewardSybilLM: 84.26957190768019, diffLM: 3.87% delegationsLM: [124.04643203735003, 196.30839840136792, 241.44513810931966, 272.2000314515572]/[14, 220.7848364953736, 273.45715945946006, 325.7580040447476]
+# eta: 0.8 rewardLM: 81.35103006082745 rewardSybilLM: 85.54496073799173, diffLM: 5.16% delegationsLM: [129.98962791336123, 206.46948531470167, 254.73452809167713, 242.80635868017356]/[14, 238.27883406860389, 296.3370499755029, 285.38411595582966]
+# eta: 0.9 rewardLM: 81.43471997428422 rewardSybilLM: 85.9848512548561, diffLM: 5.59% delegationsLM: [130.9973414196548, 208.19237393133287, 256.9878439935942, 237.82244065540874]/[14, 241.28378595657352, 300.2671391340797, 278.4490749092844]
+# eta: 1 rewardLM: 81.52087000343406 rewardSybilLM: 86.4282110746665, diffLM: 6.02% delegationsLM: [131.78212132000317, 209.53411277717237, 258.7426651981487, 233.941100703867]/[14, 243.62494931025458, 303.3290785786331, 273.04597211135905]
