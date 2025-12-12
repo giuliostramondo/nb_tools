@@ -231,7 +231,7 @@ def sybilSimulation(stakingState, amount, ownedVals, redelegateFrom, nbCoefficie
         else:
             valOwned += [False]
 
-    print(f"eta, totalReward, rewardFromCommissions, rewardFromDelegations, totalRewardSybil, rewardFromCommissionsSybil, rewardFromDelegationsSybil, diff%")
+    print(f"eta, totalReward, rewardFromCommissions, rewardFromDelegations, totalRewardSybil, rewardFromCommissionsSybil, rewardFromDelegationsSybil, diff%, totalRewardSybilExtDel, rewardFromCommissionsSybilExtDel, rewardFromDelegationsSybilExtDel, diff%")
     for nbCoefficient in nbCoefficients:
         reward, reward_from_commissions, x_opt = findOptimalDelegation(amount, valStake, valOwned, minDelegation, rewardToDistribute, nbCoefficient, pr_commissions)
         # Find validator with smallest stake not owned
@@ -254,7 +254,20 @@ def sybilSimulation(stakingState, amount, ownedVals, redelegateFrom, nbCoefficie
                     minDelegation[i] = valStake[i] + 1
                     valOwned[i] = True
         rewardSybil, reward_from_commissionsSybil, x_optSybil = findOptimalDelegation(amount, newValStake, valOwned, minDelegation, rewardToDistribute, nbCoefficient , pr_commissions)
-        print(f"{nbCoefficient}, {reward}, {reward_from_commissions}, {reward-reward_from_commissions}, {rewardSybil}, {reward_from_commissionsSybil},{rewardSybil-reward_from_commissionsSybil}, {( (rewardSybil/(reward+0.0001))-1) * 100:.2f}")
+
+        # All validators that are not owned delegate 0.1% of their stake to the sybil
+        newValStakeExternalDelegation = list(newValStake)
+        externalDelegation = 0 
+        for i in range(len(valStake)):
+            if i != min_pos and not valOwned[i]:
+                redelegationAmount = newValStake[i] * 0.001
+                externalDelegation += redelegationAmount
+                newValStakeExternalDelegation[i] = newValStake[i] - redelegationAmount
+        newValStakeExternalDelegation[min_pos] += externalDelegation
+        
+        rewardSybilExtDel, reward_from_commissionsSybilExtDel, x_optSybilExtDel = findOptimalDelegation(amount, newValStakeExternalDelegation, valOwned, minDelegation, rewardToDistribute, nbCoefficient , pr_commissions)
+
+        print(f"{nbCoefficient}, {reward}, {reward_from_commissions}, {reward-reward_from_commissions}, {rewardSybil}, {reward_from_commissionsSybil},{rewardSybil-reward_from_commissionsSybil}, {( (rewardSybil/(reward+0.0001))-1) * 100:.2f}, {rewardSybilExtDel}, {reward_from_commissionsSybilExtDel}, {rewardSybilExtDel - reward_from_commissionsSybilExtDel}, {((rewardSybilExtDel/(reward+0.0001))-1) * 100:.2f}")
         valOwned[min_pos] = False
         minDelegation = [0 for v in valStake]
 
